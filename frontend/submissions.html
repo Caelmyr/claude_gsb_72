@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>提交记录 - 在线代码评测与竞赛系统</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <div id="nav"></div>
+
+  <div class="container">
+    <div class="page-head">
+      <div>
+        <h1>📝 提交记录与评测结果</h1>
+        <div class="sub">查看所有提交的评测结果，点击查看详情</div>
+      </div>
+      <div class="flex gap-8">
+        <select id="mineFilter" style="width:auto" onchange="load()">
+          <option value="0">全部提交</option>
+          <option value="1">只看我的</option>
+        </select>
+        <button class="btn btn-outline" onclick="load()">🔄 刷新</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>提交时间</th><th>用户</th><th>题目</th><th>语言</th>
+              <th class="text-center">结果</th><th class="text-center">得分</th>
+              <th class="text-center">时间</th><th class="text-center">内存</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="list"><tr><td colspan="9" class="empty"><span class="spinner"></span> 加载中…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script src="/assets/app.js"></script>
+  <script>
+    OJ.boot("submissions");
+    let problemNames = {};
+
+    async function load() {
+      const mine = OJ.el("mineFilter").value === "1";
+      const params = new URLSearchParams();
+      if (mine) params.set("mine", "1");
+      params.set("limit", "100");
+      const tbody = OJ.el("list");
+      try {
+        const data = await OJ.api("/submissions?" + params.toString());
+        // 批量拉取题目名
+        await loadProblemNames(data.items);
+        if (!data.items.length) { tbody.innerHTML = `<tr><td colspan="9" class="empty">暂无提交记录</td></tr>`; return; }
+        tbody.innerHTML = data.items.map(s => `
+          <tr>
+            <td class="mono muted">${OJ.fmtTime(s.created_at)}</td>
+            <td>${OJ.esc(s.nickname || s.username)}</td>
+            <td>${OJ.esc(problemNames[s.problem_id] || s.problem_id)}</td>
+            <td class="mono">${OJ.esc(s.language)}</td>
+            <td class="text-center">${OJ.verdictBadge(s.status)}</td>
+            <td class="text-center mono">${s.score}</td>
+            <td class="text-center mono">${OJ.fmtDuration(s.time_ms)}</td>
+            <td class="text-center mono">${OJ.fmtMem(s.memory_kb)}</td>
+            <td class="text-right"><button class="btn btn-outline btn-sm" onclick="viewDetail('${OJ.esc(s.id)}')">详情</button></td>
+          </tr>`).join("");
+      } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="9" class="empty">${OJ.esc(e.message)}</td></tr>`;
+      }
+    }
+
+    async function loadProblemNames(items) {
+      const ids = [...new Set(items.map(s => s.problem_id))];
+      await Promise.all(ids.map(async id => {
+        try { const p = await OJ.api("/problems/" + id); problemNames[id] = p.title; }
+        catch (e) { problemNames[id] = id; }
+      }));
+    }
+
+    async function viewDetail(id) {
+      try {
+        const s = await OJ.api("/submissions/" + id);
+        const details = (s.details || []).map(d => `
+          <tr><td class="mono">#${d.case_id}</td>
+            <td class="text-center">${OJ.verdictBadge(d.status)}</td>
+            <td class="text-center">${d.score}</td>
+            <td class="text-center mono">${OJ.fmtDuration(d.time_ms)}</td>
+            <td class="text-center mono">${OJ.fmtMem(d.memory_kb)}</td>
+            <td class="muted">${OJ.esc(d.message || "")}</td></tr>`).join("");
+        const body = `
+          <div class="stat-grid">
+            <div class="stat-card"><div class="val">${OJ.verdictBadge(s.status)}</div><div class="lbl">结果</div></div>
+            <div class="stat-card"><div class="val">${s.score}</div><div class="lbl">得分</div></div>
+            <div class="stat-card"><div class="val">${OJ.fmtDuration(s.time_ms)}</div><div class="lbl">耗时</div></div>
+            <div class="stat-card"><div class="val">${OJ.fmtMem(s.memory_kb)}</div><div class="lbl">内存</div></div>
+          </div>
+          <div class="table-wrap"><table>
+            <thead><tr><th>测试点</th><th class="text-center">结果</th><th class="text-center">得分</th><th class="text-center">时间</th><th class="text-center">内存</th><th>信息</th></tr></thead>
+            <tbody>${details || `<tr><td colspan="6" class="empty">暂无详情</td></tr>`}</tbody>
+          </table></div>
+          ${s.compile_message ? `<label class="mt-16">编译信息</label><pre class="code">${OJ.esc(s.compile_message)}</pre>` : ""}
+          <label class="mt-16">源代码（${OJ.esc(s.language)}）</label>
+          <pre class="code">${OJ.esc(s.code || "")}</pre>`;
+        OJ.openModal("提交 " + id, body).querySelector(".modal").style.maxWidth = "860px";
+      } catch (e) { OJ.toast(e.message, "error"); }
+    }
+
+    load();
+    setInterval(() => { if (!document.querySelector(".modal-mask")) load(); }, 5000);
+  </script>
+</body>
+</html>

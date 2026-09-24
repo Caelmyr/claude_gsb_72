@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>题目详情 - 在线代码评测与竞赛系统</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <div id="nav"></div>
+
+  <div class="container" style="max-width:960px">
+    <div id="problemBody"></div>
+  </div>
+
+  <script src="/assets/app.js"></script>
+  <script>
+    OJ.boot("index");
+    const pid = new URLSearchParams(location.search).get("id");
+
+    function renderMarkdownish(text) {
+      // 简单段落化：空行分段，保留行内 code
+      if (!text) return '<span class="muted">（无）</span>';
+      const esc = OJ.esc;
+      const paras = text.split(/\n{2,}/).map(p => `<p>${esc(p).replace(/\n/g, "<br>")}</p>`).join("");
+      return paras;
+    }
+
+    async function load() {
+      if (!pid) { OJ.el("problemBody").innerHTML = '<div class="empty">缺少题目参数</div>'; return; }
+      const box = OJ.el("problemBody");
+      box.innerHTML = '<div class="empty"><span class="spinner"></span> 加载题目…</div>';
+      try {
+        const p = await OJ.api("/problems/" + pid);
+        const samples = (p.samples || []).map((s, i) => `
+          <div class="form-group">
+            <label>样例 ${i + 1}</label>
+            <pre class="code light">${OJ.esc(s.input)}</pre>
+            <label class="mt-8">输出</label>
+            <pre class="code light">${OJ.esc(s.output)}</pre>
+          </div>`).join("");
+
+        box.innerHTML = `
+          <div class="page-head">
+            <div>
+              <h1>${OJ.esc(p.title)} ${OJ.difficultyLabel(p.difficulty)}</h1>
+              <div class="sub">
+                时间限制 <b>${p.time_limit_ms} ms</b> · 内存限制 <b>${Math.round(p.memory_limit_kb / 1024)} MB</b> · 分值 <b>${p.points}</b>
+              </div>
+            </div>
+            <button class="btn btn-primary btn-lg" onclick="location.href='/editor.html?id=${OJ.esc(p.id)}'">✏️ 提交代码</button>
+          </div>
+
+          <div class="card">
+            <div class="card-title">题目描述</div>
+            ${renderMarkdownish(p.description)}
+          </div>
+
+          <div class="card">
+            <div class="card-title">输入描述</div>
+            ${renderMarkdownish(p.input_description)}
+          </div>
+
+          <div class="card">
+            <div class="card-title">输出描述</div>
+            ${renderMarkdownish(p.output_description)}
+          </div>
+
+          <div class="card">
+            <div class="card-title">样例</div>
+            ${samples}
+          </div>
+
+          ${p.hint ? `<div class="card"><div class="card-title">提示</div>${renderMarkdownish(p.hint)}</div>` : ""}
+
+          <div class="card">
+            <div class="card-title">标签</div>
+            <div>${(p.tags || []).map(t => `<span class="tag">${OJ.esc(t)}</span>`).join("")}</div>
+          </div>
+
+          <div class="flex gap-8 wrap">
+            <button class="btn btn-outline" onclick="history.back()">← 返回列表</button>
+            <a class="btn btn-outline" href="/forum.html?problem_id=${OJ.esc(p.id)}">💬 讨论该题</a>
+          </div>`;
+      } catch (e) {
+        box.innerHTML = `<div class="empty">${OJ.esc(e.message)}</div>`;
+      }
+    }
+    load();
+  </script>
+</body>
+</html>

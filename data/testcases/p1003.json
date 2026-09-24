@@ -1,0 +1,23 @@
+{
+  "problem_id": "p1003",
+  "cases": [
+    {
+      "id": 1,
+      "input": "1.1 2.2",
+      "output": "3.30",
+      "points": 34
+    },
+    {
+      "id": 2,
+      "input": "0.1 0.2",
+      "output": "0.30",
+      "points": 33
+    },
+    {
+      "id": 3,
+      "input": "-1.5 3.5",
+      "output": "2.00",
+      "points": 33
+    }
+  ]
+}

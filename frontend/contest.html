@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>竞赛管理 - 在线代码评测与竞赛系统</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <div id="nav"></div>
+
+  <div class="container">
+    <div class="page-head">
+      <div>
+        <h1>🏁 竞赛管理</h1>
+        <div class="sub">创建竞赛、配置倒计时与封榜、管理题目</div>
+      </div>
+      <button class="btn btn-primary" id="newBtn" onclick="openForm()" style="display:none">＋ 新建竞赛</button>
+    </div>
+
+    <div id="contestList"></div>
+  </div>
+
+  <script src="/assets/app.js"></script>
+  <script>
+    OJ.boot("contest");
+    const isAdmin = OJ.isAdmin();
+    OJ.el("newBtn").style.display = isAdmin ? "" : "none";
+    let problemsCache = [];
+
+    const STATUS = { upcoming: ["未开始", "cyan"], running: ["进行中", "AC"], ended: ["已结束", "gray"] };
+
+    async function load() {
+      const box = OJ.el("contestList");
+      try {
+        const data = await OJ.api("/contests");
+        if (!data.items.length) { box.innerHTML = `<div class="card"><div class="empty">暂无竞赛</div></div>`; return; }
+        box.innerHTML = data.items.map(c => {
+          const [stLabel, stCls] = STATUS[c.status] || ["", ""];
+          return `
+          <div class="card">
+            <div class="flex-between wrap">
+              <div>
+                <div class="card-title" style="margin-bottom:4px">${OJ.esc(c.title)} <span class="badge ${stCls}">${stLabel}</span>${c.frozen_now ? ' <span class="badge yellow">🔒 已封榜</span>' : ''}</div>
+                <div class="muted" style="font-size:13px">
+                  模式 ${c.mode.toUpperCase()} · 题目 ${(c.problems || []).length} 道
+                  · 开始 ${OJ.fmtTime(c.start_time)} · 结束 ${OJ.fmtTime(c.end_time)}
+                  ${c.freeze_enabled ? " · 封榜 " + OJ.fmtTime(c.freeze_time) : ""}
+                </div>
+                ${c.description ? `<div class="muted mt-8" style="font-size:13px">${OJ.esc(c.description)}</div>` : ""}
+              </div>
+              <div class="text-right">
+                <div id="cd-${c.id}" class="countdown"></div>
+                <div class="mt-8 flex gap-8" style="justify-content:flex-end">
+                  <a class="btn btn-outline btn-sm" href="/leaderboard.html?c=${OJ.esc(c.id)}">查看榜单</a>
+                  ${isAdmin ? `
+                    <button class="btn btn-outline btn-sm" onclick="openForm('${OJ.esc(c.id)}')">编辑</button>
+                    <button class="btn btn-danger btn-sm" onclick="del('${OJ.esc(c.id)}')">删除</button>
+                    <button class="btn btn-outline btn-sm" onclick="resetScores('${OJ.esc(c.id)}')">清空成绩</button>` : ""}
+                </div>
+              </div>
+            </div>
+          </div>`;
+        }).join("");
+        data.items.forEach(c => {
+          const target = c.status === "upcoming" ? c.start_time : (c.status === "running" ? c.end_time : null);
+          if (target) {
+            const label = c.status === "upcoming" ? "距开始" : "距结束";
+            const holder = document.getElementById("cd-" + c.id);
+            holder.innerHTML = `<small>${label}</small><br>`;
+            const span = document.createElement("span");
+            holder.appendChild(span);
+            OJ.countdown(target, span);
+          }
+        });
+      } catch (e) { box.innerHTML = `<div class="card"><div class="empty">${OJ.esc(e.message)}</div></div>`; }
+    }
+
+    function toLocal(iso) { return (iso || "").slice(0, 16); }
+    function toIso(local) { return local ? local + ":00" : null; }
+
+    async function openForm(id) {
+      await loadProblems();
+      let c = null;
+      if (id) c = await OJ.api("/contests/" + id);
+      const pids = new Set((c && c.problems || []).map(p => p.problem_id));
+      const problemChecks = problemsCache.map(p =>
+        `<label style="font-weight:400"><input type="checkbox" value="${OJ.esc(p.id)}" ${pids.has(p.id) ? "checked" : ""}> ${OJ.esc(p.id)} · ${OJ.esc(p.title)}</label>`
+      ).join("");
+      const body = `
+        <div class="form-group"><label>竞赛标题</label><input id="f_title" value="${OJ.esc(c ? c.title : "")}"></div>
+        <div class="form-group"><label>描述</label><textarea id="f_desc" rows="2">${OJ.esc(c ? c.description : "")}</textarea></div>
+        <div class="form-row-3">
+          <div class="form-group"><label>开始时间</label><input type="datetime-local" id="f_start" value="${toLocal(c ? c.start_time : "")}"></div>
+          <div class="form-group"><label>结束时间</label><input type="datetime-local" id="f_end" value="${toLocal(c ? c.end_time : "")}"></div>
+          <div class="form-group"><label>封榜时间</label><input type="datetime-local" id="f_freeze" value="${toLocal(c ? c.freeze_time : "")}"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>评分模式</label>
+            <select id="f_mode"><option value="acm" ${!c || c.mode === "acm" ? "selected" : ""}>ACM（解题数+罚时）</option>
+            <option value="ioi" ${c && c.mode === "ioi" ? "selected" : ""}>IOI（总分）</option></select></div>
+          <div class="form-group"><label>选项</label>
+            <label style="font-weight:400"><input type="checkbox" id="f_freeze_en" ${c && c.freeze_enabled ? "checked" : ""}> 启用封榜</label>
+            <label style="font-weight:400;margin-left:12px"><input type="checkbox" id="f_visible" ${!c || c.visible ? "checked" : ""}> 公开可见</label></div>
+        </div>
+        <div class="form-group"><label>竞赛题目</label>
+          <div class="card" style="max-height:200px;overflow:auto;background:var(--surface-2)">${problemChecks || '<span class="muted">暂无题目</span>'}</div>
+        </div>`;
+      const mask = OJ.openModal(id ? "编辑竞赛" : "新建竞赛", body);
+      mask.querySelector(".modal-actions").innerHTML = `
+        <button class="btn btn-outline" onclick="this.closest('.modal-mask').remove()">取消</button>
+        <button class="btn btn-primary" onclick="save('${id || ""}')">保存</button>`;
+    }
+
+    async function loadProblems() {
+      if (problemsCache.length) return;
+      try { problemsCache = (await OJ.api("/problems")).items; } catch (e) {}
+    }
+
+    async function save(id) {
+      const problems = [...document.querySelectorAll('.modal input[type="checkbox"][value]')]
+        .filter(x => x.value && !["f_freeze_en","f_visible"].includes(x.id) && x.checked)
+        .map((x, i) => ({ problem_id: x.value, points: 100, order: i + 1 }));
+      const body = {
+        title: document.getElementById("f_title").value.trim(),
+        description: document.getElementById("f_desc").value.trim(),
+        start_time: toIso(document.getElementById("f_start").value),
+        end_time: toIso(document.getElementById("f_end").value),
+        freeze_time: toIso(document.getElementById("f_freeze").value),
+        mode: document.getElementById("f_mode").value,
+        freeze_enabled: document.getElementById("f_freeze_en").checked,
+        visible: document.getElementById("f_visible").checked,
+        problems,
+      };
+      try {
+        if (id) await OJ.api("/contests/" + id, { method: "PUT", body });
+        else await OJ.api("/contests", { method: "POST", body });
+        OJ.toast("保存成功", "success");
+        document.querySelector(".modal-mask") && document.querySelector(".modal-mask").remove();
+        load();
+      } catch (e) { OJ.toast(e.message, "error"); }
+    }
+
+    async function del(id) {
+      if (!await OJ.confirmDialog("确定删除该竞赛？成绩也将清空。")) return;
+      try { await OJ.api("/contests/" + id, { method: "DELETE" }); OJ.toast("已删除", "success"); load(); }
+      catch (e) { OJ.toast(e.message, "error"); }
+    }
+
+    async function resetScores(id) {
+      if (!await OJ.confirmDialog("确定清空该竞赛全部成绩？")) return;
+      try { await OJ.api("/contests/" + id + "/reset-scores", { method: "POST" }); OJ.toast("已清空", "success"); }
+      catch (e) { OJ.toast(e.message, "error"); }
+    }
+
+    // 支持从排行榜跳转指定竞赛
+    const param = new URLSearchParams(location.search).get("c");
+
+    load();
+  </script>
+</body>
+</html>

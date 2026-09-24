@@ -1,0 +1,12 @@
+{
+  "id": "admin",
+  "username": "admin",
+  "nickname": "管理员",
+  "salt": "85fc7866558d915f58e7e9073dae4fdd",
+  "password_hash": "a7f9666fab0c4b8b95771da13271b98175d7e043da414c2c713badc600bab0a7",
+  "role": "admin",
+  "email": "admin@example.com",
+  "created_at": "2026-09-24T01:04:42",
+  "last_login": null,
+  "is_banned": false
+}

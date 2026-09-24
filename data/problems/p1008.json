@@ -1,0 +1,38 @@
+{
+  "id": "p1008",
+  "title": "字符串反转",
+  "difficulty": 1,
+  "description": "给定一个仅包含小写字母的字符串，输出它的反转串。",
+  "input_description": "一行一个字符串（长度不超过 10^5）。",
+  "output_description": "一行反转后的字符串。",
+  "samples": [
+    {
+      "input": "hello",
+      "output": "olleh"
+    },
+    {
+      "input": "abcde",
+      "output": "edcba"
+    }
+  ],
+  "hint": "可用切片 s[::-1] 或双指针。",
+  "tags": [
+    "字符串",
+    "入门"
+  ],
+  "time_limit_ms": 1000,
+  "memory_limit_kb": 65536,
+  "languages": [
+    "python",
+    "cpp",
+    "c",
+    "java"
+  ],
+  "points": 100,
+  "comparison": {
+    "mode": "exact",
+    "ignore_whitespace": true
+  },
+  "created_at": "2026-09-24T01:04:42",
+  "updated_at": "2026-09-24T01:04:42"
+}

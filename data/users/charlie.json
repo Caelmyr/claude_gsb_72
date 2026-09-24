@@ -1,0 +1,12 @@
+{
+  "id": "charlie",
+  "username": "charlie",
+  "nickname": "查理",
+  "salt": "50e8603065c29a3e3f10501b95d7b07a",
+  "password_hash": "081ea46d5fc6dbed1611749a60040dc38c32e96a725f1d6476fd9f1f47f149db",
+  "role": "user",
+  "email": "charlie@example.com",
+  "created_at": "2026-09-24T01:04:42",
+  "last_login": null,
+  "is_banned": false
+}

@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>用户管理 - 在线代码评测与竞赛系统</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <div id="nav"></div>
+
+  <div class="container">
+    <div class="page-head">
+      <div>
+        <h1>👥 用户管理</h1>
+        <div class="sub">管理用户账号、角色与封禁状态</div>
+      </div>
+      <button class="btn btn-primary" onclick="openForm()">＋ 新建用户</button>
+    </div>
+
+    <div class="card">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>用户名</th><th>昵称</th><th>邮箱</th><th class="text-center">角色</th><th class="text-center">状态</th><th>注册时间</th><th class="text-right">操作</th></tr></thead>
+          <tbody id="list"><tr><td colspan="7" class="empty"><span class="spinner"></span> 加载中…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script src="/assets/app.js"></script>
+  <script>
+    OJ.boot("users");
+    if (!OJ.isAdmin()) { OJ.el("list").innerHTML = `<tr><td colspan="7" class="empty">需要管理员权限</td></tr>`; }
+
+    const ROLE = { admin: "管理员", judge: "裁判", user: "普通用户" };
+
+    async function load() {
+      if (!OJ.isAdmin()) return;
+      const tbody = OJ.el("list");
+      try {
+        const users = await OJ.api("/users");
+        if (!users.length) { tbody.innerHTML = `<tr><td colspan="7" class="empty">暂无用户</td></tr>`; return; }
+        tbody.innerHTML = users.map(u => `
+          <tr>
+            <td class="mono">${OJ.esc(u.username)}</td>
+            <td>${OJ.esc(u.nickname)}</td>
+            <td class="muted">${OJ.esc(u.email || "-")}</td>
+            <td class="text-center">${ROLE[u.role] || u.role}</td>
+            <td class="text-center">${u.is_banned ? '<span class="badge RE">已封禁</span>' : '<span class="badge AC">正常</span>'}</td>
+            <td class="mono muted">${OJ.fmtTime(u.created_at)}</td>
+            <td class="text-right">
+              <button class="btn btn-outline btn-sm" onclick="openForm('${OJ.esc(u.id)}')">编辑</button>
+              <button class="btn btn-danger btn-sm" onclick="del('${OJ.esc(u.id)}','${OJ.esc(u.username)}')">删除</button>
+            </td>
+          </tr>`).join("");
+      } catch (e) { tbody.innerHTML = `<tr><td colspan="7" class="empty">${OJ.esc(e.message)}</td></tr>`; }
+    }
+
+    async function openForm(id) {
+      let u = null;
+      if (id) { const users = await OJ.api("/users"); u = users.find(x => x.id === id); }
+      const body = `
+        <div class="form-row">
+          <div class="form-group"><label>用户名</label><input id="f_user" value="${OJ.esc(u ? u.username : "")}" ${u ? "disabled" : ""}></div>
+          <div class="form-group"><label>昵称</label><input id="f_nick" value="${OJ.esc(u ? u.nickname : "")}"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>邮箱</label><input id="f_email" value="${OJ.esc(u ? u.email : "")}"></div>
+          <div class="form-group"><label>角色</label>
+            <select id="f_role">
+              <option value="user" ${u && u.role === "user" ? "selected" : ""}>普通用户</option>
+              <option value="judge" ${u && u.role === "judge" ? "selected" : ""}>裁判</option>
+              <option value="admin" ${u && u.role === "admin" ? "selected" : ""}>管理员</option>
+            </select></div>
+        </div>
+        <div class="form-group"><label>${u ? "重置密码（留空不变）" : "初始密码"}</label><input id="f_pass" type="password" placeholder="${u ? "留空则不修改" : "默认 123456"}"></div>
+        ${u ? `<div class="form-group"><label style="font-weight:400"><input type="checkbox" id="f_ban" ${u.is_banned ? "checked" : ""}> 封禁该账号</label></div>` : ""}
+      `;
+      const mask = OJ.openModal(id ? "编辑用户" : "新建用户", body);
+      mask.querySelector(".modal-actions").innerHTML = `
+        <button class="btn btn-outline" onclick="this.closest('.modal-mask').remove()">取消</button>
+        <button class="btn btn-primary" onclick="save('${id || ""}')">保存</button>`;
+    }
+
+    async function save(id) {
+      const body = {
+        username: document.getElementById("f_user").value.trim(),
+        nickname: document.getElementById("f_nick").value.trim(),
+        email: document.getElementById("f_email").value.trim(),
+        role: document.getElementById("f_role").value,
+      };
+      const pass = document.getElementById("f_pass").value;
+      if (pass) body.password = pass;
+      const ban = document.getElementById("f_ban");
+      if (ban) body.is_banned = ban.checked;
+      try {
+        if (id) await OJ.api("/users/" + id, { method: "PUT", body });
+        else await OJ.api("/users", { method: "POST", body });
+        OJ.toast("保存成功", "success");
+        document.querySelector(".modal-mask").remove();
+        load();
+      } catch (e) { OJ.toast(e.message, "error"); }
+    }
+
+    async function del(id, name) {
+      if (!await OJ.confirmDialog(`确定删除用户 ${name}？`)) return;
+      try { await OJ.api("/users/" + id, { method: "DELETE" }); OJ.toast("已删除", "success"); load(); }
+      catch (e) { OJ.toast(e.message, "error"); }
+    }
+
+    load();
+  </script>
+</body>
+</html>

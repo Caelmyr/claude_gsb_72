@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>题目列表 - 在线代码评测与竞赛系统</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <div id="nav"></div>
+
+  <div class="container">
+    <div class="page-head">
+      <div>
+        <h1>📚 题目列表</h1>
+        <div class="sub">选择一个题目开始刷题，支持在线评测</div>
+      </div>
+      <div class="flex gap-8">
+        <button class="btn btn-primary hidden" id="newProblemBtn" onclick="openProblemForm()">＋ 新建题目</button>
+        <button class="btn btn-outline" onclick="loadProblems()">🔄 刷新</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="toolbar">
+        <input type="text" id="q" placeholder="搜索题目标题 / 描述..." style="max-width:280px" onkeydown="if(event.key==='Enter')loadProblems()">
+        <select id="tagFilter" style="width:auto" onchange="loadProblems()"><option value="">全部标签</option></select>
+        <select id="diffFilter" style="width:auto" onchange="loadProblems()">
+          <option value="">全部难度</option>
+          <option value="1">入门</option>
+          <option value="2">简单</option>
+          <option value="3">中等</option>
+          <option value="4">较难</option>
+          <option value="5">困难</option>
+        </select>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>编号</th><th>标题</th><th>标签</th><th class="text-center">难度</th><th class="text-center">通过率</th><th></th></tr>
+          </thead>
+          <tbody id="problemList">
+            <tr><td colspan="6" class="empty">加载中…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- 登录/注册模态框 -->
+  <div id="authMask" class="modal-mask hidden">
+    <div class="modal auth-box" style="max-width:400px">
+      <div class="logo">OJ</div>
+      <div class="tabs">
+        <div class="tab active" data-t="login" onclick="switchTab('login')">登录</div>
+        <div class="tab" data-t="register" onclick="switchTab('register')">注册</div>
+      </div>
+      <div id="loginForm">
+        <div class="form-group"><label>用户名</label><input id="loginUser" placeholder="用户名"></div>
+        <div class="form-group"><label>密码</label><input id="loginPass" type="password" placeholder="密码" onkeydown="if(event.key==='Enter')doLogin()"></div>
+        <button class="btn btn-primary" style="width:100%" onclick="doLogin()">登录</button>
+        <div class="hint mt-8">默认管理员：admin / admin123；普通用户：alice / 123456</div>
+      </div>
+      <div id="regForm" class="hidden">
+        <div class="form-group"><label>用户名</label><input id="regUser" placeholder="用户名"></div>
+        <div class="form-group"><label>昵称</label><input id="regNick" placeholder="昵称（可选）"></div>
+        <div class="form-group"><label>密码</label><input id="regPass" type="password" placeholder="至少 4 位"></div>
+        <button class="btn btn-primary" style="width:100%" onclick="doRegister()">注册</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/assets/app.js"></script>
+  <script>
+    OJ.boot("index");
+
+    async function loadTags() {
+      try {
+        const tags = await OJ.api("/problems/tags");
+        const sel = OJ.el("tagFilter");
+        tags.forEach(t => { const o = document.createElement("option"); o.value = t; o.textContent = t; sel.appendChild(o); });
+      } catch (e) {}
+    }
+
+    async function loadProblems() {
+      const q = OJ.el("q").value.trim();
+      const tag = OJ.el("tagFilter").value;
+      const diff = OJ.el("diffFilter").value;
+      const params = new URLSearchParams();
+      if (q) params.set("q", q);
+      if (tag) params.set("tag", tag);
+      if (diff) params.set("difficulty", diff);
+      const tbody = OJ.el("problemList");
+      const admin = OJ.isAdmin();
+      OJ.el("newProblemBtn").classList.toggle("hidden", !admin);
+      try {
+        const data = await OJ.api("/problems?" + params.toString());
+        if (!data.items.length) {
+          tbody.innerHTML = `<tr><td colspan="6" class="empty">暂无题目</td></tr>`;
+          return;
+        }
+        tbody.innerHTML = data.items.map(p => `
+          <tr>
+            <td class="mono muted">${OJ.esc(p.id)}</td>
+            <td><a href="/problem.html?id=${OJ.esc(p.id)}">${OJ.esc(p.title)}</a></td>
+            <td>${(p.tags || []).map(t => `<span class="tag">${OJ.esc(t)}</span>`).join("")}</td>
+            <td class="text-center">${OJ.difficultyLabel(p.difficulty)}</td>
+            <td class="text-center muted">${p.submissions ? Math.round(p.accepted / p.submissions * 100) : 0}%</td>
+            <td class="text-right">
+              <a class="btn btn-outline btn-sm" href="/problem.html?id=${OJ.esc(p.id)}">查看</a>
+              ${admin ? `<button class="btn btn-outline btn-sm" onclick="openProblemForm('${OJ.esc(p.id)}')">编辑</button>
+                         <button class="btn btn-danger btn-sm" onclick="deleteProblem('${OJ.esc(p.id)}')">删除</button>` : ""}
+            </td>
+          </tr>`).join("");
+      } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="6" class="empty">${OJ.esc(e.message)}</td></tr>`;
+      }
+    }
+
+    // ---------- 管理员：题目管理 ----------
+    async function openProblemForm(id) {
+      let p = null, cases = [];
+      if (id) {
+        p = await OJ.api("/problems/" + id);
+        try { cases = (await OJ.api("/problems/" + id + "/testcases")).cases; } catch (e) {}
+      }
+      const comp = (p && p.comparison) || {};
+      const caseRows = (cases.length ? cases : [{ input: "", output: "", points: 20 }]).map(c =>
+        `<div class="case-row" style="display:grid;grid-template-columns:1fr 1fr 90px 30px;gap:8px;margin-bottom:8px">
+          <textarea class="c-in" rows="2" placeholder="输入">${OJ.esc(c.input)}</textarea>
+          <textarea class="c-out" rows="2" placeholder="输出">${OJ.esc(c.output)}</textarea>
+          <input class="c-pts" type="number" value="${c.points ?? 20}" placeholder="分值">
+          <button class="btn btn-danger btn-sm" onclick="this.parentElement.remove()">×</button>
+        </div>`).join("");
+      const body = `
+        <div class="form-row">
+          <div class="form-group"><label>编号</label><input id="f_id" value="${OJ.esc(p ? p.id : "")}" placeholder="留空自动生成"></div>
+          <div class="form-group"><label>标题</label><input id="f_title" value="${OJ.esc(p ? p.title : "")}"></div>
+        </div>
+        <div class="form-row-3">
+          <div class="form-group"><label>难度 (1-5)</label><input id="f_diff" type="number" min="1" max="5" value="${p ? p.difficulty : 1}"></div>
+          <div class="form-group"><label>时间限制 (ms)</label><input id="f_time" type="number" value="${p ? p.time_limit_ms : 1000}"></div>
+          <div class="form-group"><label>内存限制 (KB)</label><input id="f_mem" type="number" value="${p ? p.memory_limit_kb : 65536}"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>分值</label><input id="f_points" type="number" value="${p ? p.points : 100}"></div>
+          <div class="form-group"><label>标签（逗号分隔）</label><input id="f_tags" value="${OJ.esc(p && p.tags ? p.tags.join(",") : "")}"></div>
+        </div>
+        <div class="form-group"><label>题目描述</label><textarea id="f_desc" rows="3">${OJ.esc(p ? p.description : "")}</textarea></div>
+        <div class="form-row">
+          <div class="form-group"><label>输入描述</label><textarea id="f_in" rows="2">${OJ.esc(p ? p.input_description : "")}</textarea></div>
+          <div class="form-group"><label>输出描述</label><textarea id="f_out" rows="2">${OJ.esc(p ? p.output_description : "")}</textarea></div>
+        </div>
+        <div class="form-group"><label>提示</label><textarea id="f_hint" rows="2">${OJ.esc(p ? p.hint : "")}</textarea></div>
+        <div class="form-row">
+          <div class="form-group"><label>比对模式</label>
+            <select id="f_mode">
+              <option value="exact" ${comp.mode === "exact" ? "selected" : ""}>精确（忽略空白）</option>
+              <option value="float" ${comp.mode === "float" ? "selected" : ""}>浮点误差</option>
+              <option value="unordered" ${comp.mode === "unordered" ? "selected" : ""}>多答案无序</option>
+            </select></div>
+          <div class="form-group"><label>浮点误差限（float 模式）</label><input id="f_tol" type="number" step="0.000001" value="${comp.float_tolerance ?? 1e-6}"></div>
+        </div>
+        <div class="card-title">测试用例 <button class="btn btn-outline btn-sm" onclick="addCaseRow()">＋ 添加</button></div>
+        <div id="caseList">${caseRows}</div>`;
+      const mask = OJ.openModal(id ? "编辑题目" : "新建题目", body);
+      mask.querySelector(".modal").style.maxWidth = "860px";
+      mask.querySelector(".modal-actions").innerHTML = `
+        <button class="btn btn-outline" onclick="this.closest('.modal-mask').remove()">取消</button>
+        <button class="btn btn-primary" onclick="saveProblem('${id || ""}')">保存</button>`;
+    }
+
+    function addCaseRow() {
+      const div = document.createElement("div");
+      div.className = "case-row";
+      div.style.cssText = "display:grid;grid-template-columns:1fr 1fr 90px 30px;gap:8px;margin-bottom:8px";
+      div.innerHTML = `<textarea class="c-in" rows="2" placeholder="输入"></textarea>
+        <textarea class="c-out" rows="2" placeholder="输出"></textarea>
+        <input class="c-pts" type="number" value="20" placeholder="分值">
+        <button class="btn btn-danger btn-sm" onclick="this.parentElement.remove()">×</button>`;
+      OJ.el("caseList").appendChild(div);
+    }
+
+    async function saveProblem(id) {
+      const cases = [...document.querySelectorAll(".case-row")].map((r, i) => ({
+        id: i + 1,
+        input: r.querySelector(".c-in").value,
+        output: r.querySelector(".c-out").value,
+        points: parseInt(r.querySelector(".c-pts").value, 10) || 0,
+      }));
+      const body = {
+        id: OJ.el("f_id").value.trim() || undefined,
+        title: OJ.el("f_title").value.trim(),
+        difficulty: parseInt(OJ.el("f_diff").value, 10) || 1,
+        time_limit_ms: parseInt(OJ.el("f_time").value, 10) || 1000,
+        memory_limit_kb: parseInt(OJ.el("f_mem").value, 10) || 65536,
+        points: parseInt(OJ.el("f_points").value, 10) || 100,
+        tags: OJ.el("f_tags").value.split(",").map(s => s.trim()).filter(Boolean),
+        description: OJ.el("f_desc").value,
+        input_description: OJ.el("f_in").value,
+        output_description: OJ.el("f_out").value,
+        hint: OJ.el("f_hint").value,
+        comparison: { mode: OJ.el("f_mode").value, float_tolerance: parseFloat(OJ.el("f_tol").value) || 1e-6, ignore_whitespace: true },
+        languages: ["python", "cpp", "c", "java"],
+        cases,
+      };
+      try {
+        if (id) await OJ.api("/problems/" + id, { method: "PUT", body });
+        else await OJ.api("/problems", { method: "POST", body });
+        OJ.toast("保存成功", "success");
+        document.querySelector(".modal-mask").remove();
+        loadTags(); loadProblems();
+      } catch (e) { OJ.toast(e.message, "error"); }
+    }
+
+    async function deleteProblem(id) {
+      if (!await OJ.confirmDialog("确定删除题目 " + id + "？相关测试用例与提交将不可用。")) return;
+      try { await OJ.api("/problems/" + id, { method: "DELETE" }); OJ.toast("已删除", "success"); loadProblems(); }
+      catch (e) { OJ.toast(e.message, "error"); }
+    }
+
+    // 登录 / 注册
+    function showAuth(show) {
+      OJ.el("authMask").classList.toggle("hidden", !show);
+    }
+    function switchTab(t) {
+      document.querySelectorAll(".tab").forEach(x => x.classList.toggle("active", x.dataset.t === t));
+      OJ.el("loginForm").classList.toggle("hidden", t !== "login");
+      OJ.el("regForm").classList.toggle("hidden", t !== "register");
+    }
+    async function doLogin() {
+      try {
+        const res = await OJ.api("/auth/login", { method: "POST", body: { username: OJ.el("loginUser").value.trim(), password: OJ.el("loginPass").value } });
+        OJ.setSession(res.token, res.user);
+        OJ.toast("登录成功，欢迎 " + (res.user.nickname || res.user.username), "success");
+        showAuth(false);
+        setTimeout(() => { OJ.boot("index"); loadProblems(); }, 100);
+      } catch (e) { OJ.toast(e.message, "error"); }
+    }
+    async function doRegister() {
+      try {
+        const res = await OJ.api("/auth/register", { method: "POST", body: { username: OJ.el("regUser").value.trim(), nickname: OJ.el("regNick").value.trim(), password: OJ.el("regPass").value } });
+        OJ.setSession(res.token, res.user);
+        OJ.toast("注册成功", "success");
+        showAuth(false);
+        setTimeout(() => { OJ.boot("index"); loadProblems(); }, 100);
+      } catch (e) { OJ.toast(e.message, "error"); }
+    }
+
+    // 初始化
+    loadTags();
+    loadProblems();
+    if (new URLSearchParams(location.search).get("login") === "1" && !OJ.currentUser()) {
+      showAuth(true);
+    }
+    // 未登录但点了导航里的登录按钮
+    window.addEventListener("oj-login", () => showAuth(true));
+  </script>
+</body>
+</html>

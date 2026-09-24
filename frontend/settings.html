@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>系统设置 - 在线代码评测与竞赛系统</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <div id="nav"></div>
+
+  <div class="container" style="max-width:760px">
+    <div class="page-head">
+      <div>
+        <h1>⚙️ 系统设置</h1>
+        <div class="sub">配置评测引擎、沙箱与防作弊策略</div>
+      </div>
+    </div>
+
+    <div id="body"></div>
+  </div>
+
+  <script src="/assets/app.js"></script>
+  <script>
+    OJ.boot("settings");
+
+    async function load() {
+      const box = OJ.el("body");
+      if (!OJ.isAdmin()) { box.innerHTML = `<div class="card"><div class="empty">需要管理员权限</div></div>`; return; }
+      let s;
+      try { s = await OJ.api("/settings"); }
+      catch (e) { box.innerHTML = `<div class="card"><div class="empty">${OJ.esc(e.message)}</div></div>`; return; }
+      const j = s.judge || {}, a = s.anti_cheat || {}, r = s.ranking || {};
+      box.innerHTML = `
+        <div class="card">
+          <div class="card-title">基本信息</div>
+          <div class="form-group"><label>系统名称</label><input id="site_name" value="${OJ.esc(s.site_name)}"></div>
+          <div class="form-group"><label style="font-weight:400"><input type="checkbox" id="reg_allow" ${s.registration && s.registration.allow ? "checked" : ""}> 允许开放注册</label></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">评测引擎 <span class="hint">当前沙箱：${OJ.esc(s._sandbox || "auto")}</span></div>
+          <div class="form-row">
+            <div class="form-group"><label>最大并发评测数</label><input type="number" id="max_conc" value="${j.max_concurrent ?? 4}" min="1" max="32"></div>
+            <div class="form-group"><label>沙箱后端</label>
+              <select id="sandbox">
+                <option value="auto" ${j.sandbox === "auto" ? "selected" : ""}>自动（优先 Docker）</option>
+                <option value="docker" ${j.sandbox === "docker" ? "selected" : ""}>Docker 容器</option>
+                <option value="native" ${j.sandbox === "native" ? "selected" : ""}>原生子进程</option>
+              </select></div>
+          </div>
+          <div class="form-row-3">
+            <div class="form-group"><label>默认时间限制 (ms)</label><input type="number" id="def_time" value="${j.default_time_limit_ms ?? 1000}" min="100"></div>
+            <div class="form-group"><label>默认内存限制 (KB)</label><input type="number" id="def_mem" value="${j.default_memory_limit_kb ?? 65536}" min="16384"></div>
+            <div class="form-group"><label>编译超时 (ms)</label><input type="number" id="compile_to" value="${j.compile_timeout_ms ?? 15000}" min="1000"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">防作弊检测</div>
+          <div class="form-group"><label style="font-weight:400"><input type="checkbox" id="ac_enabled" ${a.enabled !== false ? "checked" : ""}> 启用代码相似度检测</label></div>
+          <div class="form-group"><label>相似度阈值 (0~1)</label><input type="number" id="ac_threshold" value="${a.similarity_threshold ?? 0.9}" min="0.5" max="1" step="0.01"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">排行榜</div>
+          <div class="form-group"><label>ACM 错误提交罚时（秒）</label><input type="number" id="penalty" value="${r.penalty_seconds ?? 1200}" min="0"></div>
+        </div>
+
+        <button class="btn btn-primary btn-lg" style="width:100%" onclick="save()">💾 保存设置</button>`;
+    }
+
+    async function save() {
+      const body = {
+        site_name: document.getElementById("site_name").value.trim(),
+        registration: { allow: document.getElementById("reg_allow").checked },
+        judge: {
+          max_concurrent: parseInt(document.getElementById("max_conc").value, 10) || 4,
+          sandbox: document.getElementById("sandbox").value,
+          default_time_limit_ms: parseInt(document.getElementById("def_time").value, 10) || 1000,
+          default_memory_limit_kb: parseInt(document.getElementById("def_mem").value, 10) || 65536,
+          compile_timeout_ms: parseInt(document.getElementById("compile_to").value, 10) || 15000,
+        },
+        anti_cheat: {
+          enabled: document.getElementById("ac_enabled").checked,
+          similarity_threshold: parseFloat(document.getElementById("ac_threshold").value) || 0.9,
+        },
+        ranking: { penalty_seconds: parseInt(document.getElementById("penalty").value, 10) || 1200 },
+      };
+      try { await OJ.api("/settings", { method: "PUT", body }); OJ.toast("设置已保存", "success"); load(); }
+      catch (e) { OJ.toast(e.message, "error"); }
+    }
+
+    load();
+  </script>
+</body>
+</html>

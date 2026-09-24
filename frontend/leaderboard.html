@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>实时排行榜 - 在线代码评测与竞赛系统</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <div id="nav"></div>
+
+  <div class="container">
+    <div class="page-head">
+      <div>
+        <h1>🏆 实时排行榜</h1>
+        <div class="sub" id="contestSub">选择竞赛查看实时排名，封榜期间榜单冻结</div>
+      </div>
+      <div class="flex gap-8">
+        <select id="contestSelect" style="width:auto" onchange="load()"></select>
+        <button class="btn btn-outline" onclick="load()">🔄 刷新</button>
+      </div>
+    </div>
+
+    <div id="frozenBanner" class="frozen-banner hidden">🔒 已封榜：榜单冻结于封榜时刻，最终结果将在比赛结束后揭晓</div>
+
+    <div class="card">
+      <div class="card-title">
+        <span id="lbTitle">排行榜</span>
+        <span class="hint" id="countdownBox"></span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead id="lbHead"></thead>
+          <tbody id="lbBody"><tr><td colspan="10" class="empty"><span class="spinner"></span> 加载中…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script src="/assets/app.js"></script>
+  <script>
+    OJ.boot("leaderboard");
+    let curContest = null;
+
+    async function loadContests() {
+      const sel = OJ.el("contestSelect");
+      try {
+        const data = await OJ.api("/contests");
+        sel.innerHTML = data.items.map(c => `<option value="${OJ.esc(c.id)}">${OJ.esc(c.title)}</option>`).join("");
+        if (data.items.length) { sel.value = data.items[0].id; load(); }
+        else { OJ.el("lbBody").innerHTML = `<tr><td colspan="10" class="empty">暂无竞赛</td></tr>`; }
+      } catch (e) {}
+    }
+
+    async function load() {
+      const cid = OJ.el("contestSelect").value;
+      if (!cid) return;
+      try {
+        const d = await OJ.api("/leaderboard/" + cid);
+        curContest = d;
+        render(d);
+      } catch (e) {
+        OJ.el("lbBody").innerHTML = `<tr><td colspan="10" class="empty">${OJ.esc(e.message)}</td></tr>`;
+      }
+    }
+
+    function render(d) {
+      OJ.el("lbTitle").textContent = d.contest_title;
+      OJ.el("contestSub").textContent = `模式：${d.mode === "acm" ? "ACM（解题数 + 罚时）" : "IOI（总分）"} · 状态：${d.contest_status}`;
+
+      // 封榜倒计时
+      const cd = OJ.el("countdownBox");
+      if (d.freeze_enabled && d.freeze_time) {
+        cd.innerHTML = "距封榜 " + `<span id="cd"></span>`;
+        OJ.countdown(d.freeze_time, "cd");
+      } else cd.innerHTML = "";
+
+      // 封榜横幅
+      OJ.el("frozenBanner").classList.toggle("hidden", !d.frozen_now);
+
+      const problems = d.contest_problems || [];
+      const isAcm = d.mode === "acm";
+      OJ.el("lbHead").innerHTML = `<tr>
+        <th>#</th><th>用户</th>
+        ${isAcm ? "<th class='text-center'>解题数</th><th class='text-center'>罚时</th>" : "<th class='text-center'>总分</th><th class='text-center'>用时</th>"}
+        ${problems.map(p => `<th class="text-center" title="${OJ.esc(p.problem_id)}">${OJ.esc(p.problem_id)}</th>`).join("")}
+      </tr>`;
+
+      const rows = d.rows || [];
+      if (!rows.length) {
+        OJ.el("lbBody").innerHTML = `<tr><td colspan="${4 + problems.length}" class="empty">暂无排名数据</td></tr>`;
+        return;
+      }
+      OJ.el("lbBody").innerHTML = rows.map(r => {
+        const rankCls = r.rank <= 3 ? `rank-${r.rank}` : "";
+        const meCls = r.user_id === d.me ? "rank-me" : "";
+        const cells = problems.map(p => {
+          const pr = (r.problems || {})[p.problem_id];
+          if (!pr || !pr.attempts) return `<td class="text-center muted">-</td>`;
+          if (isAcm) {
+            return pr.solved
+              ? `<td class="text-center"><span class="badge AC">✓${pr.attempts > 1 ? ` (${pr.attempts})` : ""}</span></td>`
+              : `<td class="text-center"><span class="badge WA">-${pr.attempts}</span></td>`;
+          }
+          return `<td class="text-center mono">${pr.score}</td>`;
+        }).join("");
+        const metric = isAcm
+          ? `<td class="text-center solved-cell">${r.solved}</td><td class="text-center mono">${fmtPenalty(r.penalty)}</td>`
+          : `<td class="text-center solved-cell">${r.score}</td><td class="text-center mono">${OJ.fmtDuration(r.total_time_ms)}</td>`;
+        return `<tr class="${meCls}">
+          <td class="${rankCls}" style="font-weight:700">${r.rank}</td>
+          <td>${OJ.esc(r.nickname || r.username)}${r.user_id === d.me ? " <span class='role-tag'>我</span>" : ""}</td>
+          ${metric}${cells}
+        </tr>`;
+      }).join("");
+    }
+
+    function fmtPenalty(sec) {
+      if (!sec && sec !== 0) return "-";
+      const m = Math.floor(sec / 60), s = sec % 60;
+      return `${m}:${String(s).padStart(2, "0")}`;
+    }
+
+    loadContests();
+    setInterval(load, 5000);
+  </script>
+</body>
+</html>

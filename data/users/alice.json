@@ -1,0 +1,12 @@
+{
+  "id": "alice",
+  "username": "alice",
+  "nickname": "爱丽丝",
+  "salt": "c4eb4d1adcc89359a392b2a2dc47f494",
+  "password_hash": "5b2849153aa22f700a30ef9df392b2a3bbae26a667f6f7b4a08cea0f09e62059",
+  "role": "user",
+  "email": "alice@example.com",
+  "created_at": "2026-09-24T01:04:42",
+  "last_login": null,
+  "is_banned": false
+}

@@ -1,0 +1,35 @@
+{
+  "problem_id": "p1001",
+  "cases": [
+    {
+      "id": 1,
+      "input": "1 2",
+      "output": "3",
+      "points": 20
+    },
+    {
+      "id": 2,
+      "input": "-5 8",
+      "output": "3",
+      "points": 20
+    },
+    {
+      "id": 3,
+      "input": "0 0",
+      "output": "0",
+      "points": 20
+    },
+    {
+      "id": 4,
+      "input": "123456 654321",
+      "output": "777777",
+      "points": 20
+    },
+    {
+      "id": 5,
+      "input": "-1000000000 1000000000",
+      "output": "0",
+      "points": 20
+    }
+  ]
+}

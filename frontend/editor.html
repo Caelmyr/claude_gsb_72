@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>代码编辑器 - 在线代码评测与竞赛系统</title>
+  <link rel="stylesheet" href="/assets/app.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/material.min.css">
+</head>
+<body>
+  <div id="nav"></div>
+
+  <div class="container">
+    <div class="page-head">
+      <div>
+        <h1>✏️ 代码编辑器</h1>
+        <div class="sub">编写代码并提交评测，支持 Python / C / C++ / Java</div>
+      </div>
+      <div class="flex gap-8">
+        <a class="btn btn-outline" id="backLink" href="/index.html">← 返回</a>
+        <button class="btn btn-primary btn-lg" id="submitBtn" onclick="submit()">🚀 提交评测</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="form-row-3">
+        <div class="form-group">
+          <label>题目</label>
+          <select id="problemSelect" onchange="onProblemChange()"></select>
+        </div>
+        <div class="form-group">
+          <label>语言</label>
+          <select id="langSelect" onchange="onLangChange()">
+            <option value="python">Python 3</option>
+            <option value="cpp">C++17</option>
+            <option value="c">C11</option>
+            <option value="java">Java 17</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>竞赛（可选）</label>
+          <select id="contestSelect"><option value="">练习模式（不计排名）</option></select>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">
+        <span id="problemTitle">源代码</span>
+        <span class="hint" id="problemHint"></span>
+      </div>
+      <div class="editor-wrap">
+        <div class="editor-toolbar">
+          <span id="editorLang" class="muted">Python 3</span>
+          <button class="btn btn-outline btn-sm" onclick="resetTemplate()">↺ 重置模板</button>
+        </div>
+        <textarea id="codeEditor" class="editor-fallback" spellcheck="false"></textarea>
+      </div>
+    </div>
+
+    <!-- 评测结果 -->
+    <div class="card hidden" id="resultCard">
+      <div class="card-title">评测结果 <span id="resultBadge"></span></div>
+      <div class="stat-grid" id="resultStats"></div>
+      <div class="table-wrap mt-8">
+        <table>
+          <thead><tr><th>测试点</th><th class="text-center">结果</th><th class="text-center">得分</th><th class="text-center">时间</th><th class="text-center">内存</th><th>信息</th></tr></thead>
+          <tbody id="resultDetails"></tbody>
+        </table>
+      </div>
+      <div id="compileMsg" class="mt-8"></div>
+    </div>
+  </div>
+
+  <script src="/assets/app.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/clike/clike.min.js"></script>
+  <script>
+    const OJ_ = OJ;
+    OJ_.boot("index");
+    let editor = null;
+    let pollTimer = null;
+
+    const TEMPLATES = {
+      python: 'import sys\n\ndef main():\n    # 在此编写代码\n    pass\n\nif __name__ == "__main__":\n    main()\n',
+      cpp: '#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    // 在此编写代码\n    return 0;\n}\n',
+      c: '#include <stdio.h>\n\nint main() {\n    // 在此编写代码\n    return 0;\n}\n',
+      java: 'import java.util.*;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner sc = new Scanner(System.in);\n        // 在此编写代码\n    }\n}\n',
+    };
+    const LANG_MODE = { python: "python", cpp: "text/x-c++src", c: "text/x-csrc", java: "text/x-java" };
+
+    function initEditor() {
+      const ta = document.getElementById("codeEditor");
+      if (window.CodeMirror) {
+        editor = CodeMirror.fromTextArea(ta, {
+          lineNumbers: true,
+          mode: "python",
+          theme: "material",
+          indentUnit: 4,
+          indentWithTabs: false,
+          lineWrapping: false,
+          autoCloseBrackets: true,
+        });
+        editor.setSize("100%", 480);
+      } else {
+        editor = null; // 退化为原生 textarea
+      }
+      onLangChange();
+    }
+
+    function getCode() {
+      return editor ? editor.getValue() : document.getElementById("codeEditor").value;
+    }
+    function setCode(v) {
+      if (editor) editor.setValue(v);
+      else document.getElementById("codeEditor").value = v;
+    }
+    function onLangChange() {
+      const lang = document.getElementById("langSelect").value;
+      document.getElementById("editorLang").textContent = LANG_MODE[lang];
+      if (editor) editor.setOption("mode", LANG_MODE[lang]);
+    }
+    function resetTemplate() {
+      const lang = document.getElementById("langSelect").value;
+      setCode(TEMPLATES[lang]);
+      onLangChange();
+    }
+
+    async function loadProblems() {
+      const sel = document.getElementById("problemSelect");
+      try {
+        const data = await OJ_.api("/problems");
+        sel.innerHTML = data.items.map(p => `<option value="${OJ_.esc(p.id)}">${OJ_.esc(p.id)} · ${OJ_.esc(p.title)}</option>`).join("");
+        const pid = new URLSearchParams(location.search).get("id");
+        if (pid) sel.value = pid;
+        onProblemChange();
+      } catch (e) { sel.innerHTML = '<option>加载失败</option>'; }
+    }
+
+    async function loadContests() {
+      const sel = document.getElementById("contestSelect");
+      try {
+        const data = await OJ_.api("/contests");
+        const runnable = data.items.filter(c => c.status === "running");
+        sel.innerHTML = '<option value="">练习模式（不计排名）</option>' +
+          runnable.map(c => `<option value="${OJ_.esc(c.id)}">${OJ_.esc(c.title)}</option>`).join("");
+      } catch (e) {}
+    }
+
+    async function onProblemChange() {
+      const pid = document.getElementById("problemSelect").value;
+      if (!pid) return;
+      try {
+        const p = await OJ_.api("/problems/" + pid);
+        document.getElementById("problemTitle").textContent = p.title;
+        document.getElementById("problemHint").textContent =
+          `时限 ${p.time_limit_ms}ms · 内存 ${Math.round(p.memory_limit_kb / 1024)}MB · ${p.points} 分`;
+        document.getElementById("backLink").href = "/problem.html?id=" + pid;
+      } catch (e) {}
+    }
+
+    async function submit() {
+      const user = OJ_.currentUser();
+      if (!user) { OJ_.toast("请先登录后提交", "error"); location.href = "/index.html?login=1"; return; }
+      const code = getCode();
+      if (!code.trim()) { OJ_.toast("代码不能为空", "error"); return; }
+      const btn = document.getElementById("submitBtn");
+      btn.disabled = true; btn.textContent = "提交中…";
+      document.getElementById("resultCard").classList.remove("hidden");
+      document.getElementById("resultBadge").innerHTML = `<span class="badge PENDING pulse">排队中</span>`;
+      try {
+        const body = {
+          code, language: document.getElementById("langSelect").value,
+          problem_id: document.getElementById("problemSelect").value,
+          contest_id: document.getElementById("contestSelect").value || null,
+        };
+        const res = await OJ_.api("/submissions", { method: "POST", body });
+        pollResult(res.id);
+      } catch (e) {
+        OJ_.toast(e.message, "error");
+        btn.disabled = false; btn.textContent = "🚀 提交评测";
+      }
+    }
+
+    async function pollResult(subId) {
+      if (pollTimer) clearTimeout(pollTimer);
+      try {
+        const s = await OJ_.api("/submissions/" + subId);
+        renderResult(s);
+        if (s.status === "PENDING" || s.status === "JUDGING") {
+          pollTimer = setTimeout(() => pollResult(subId), 1000);
+        } else {
+          const btn = document.getElementById("submitBtn");
+          btn.disabled = false; btn.textContent = "🚀 提交评测";
+        }
+      } catch (e) {
+        OJ_.toast(e.message, "error");
+        document.getElementById("submitBtn").disabled = false;
+        document.getElementById("submitBtn").textContent = "🚀 提交评测";
+      }
+    }
+
+    function renderResult(s) {
+      document.getElementById("resultBadge").innerHTML = OJ_.verdictBadge(s.status);
+      document.getElementById("resultStats").innerHTML = `
+        <div class="stat-card"><div class="val">${OJ_.esc(s.score)}</div><div class="lbl">得分</div></div>
+        <div class="stat-card"><div class="val">${OJ_.fmtDuration(s.time_ms)}</div><div class="lbl">耗时</div></div>
+        <div class="stat-card"><div class="val">${OJ_.fmtMem(s.memory_kb)}</div><div class="lbl">内存</div></div>
+        <div class="stat-card"><div class="val">${OJ_.esc(s.language || "")}</div><div class="lbl">语言</div></div>`;
+      const details = s.details || [];
+      document.getElementById("resultDetails").innerHTML = details.length
+        ? details.map(d => `<tr>
+            <td class="mono">#${d.case_id}</td>
+            <td class="text-center">${OJ_.verdictBadge(d.status)}</td>
+            <td class="text-center">${d.score}</td>
+            <td class="text-center mono">${OJ_.fmtDuration(d.time_ms)}</td>
+            <td class="text-center mono">${OJ_.fmtMem(d.memory_kb)}</td>
+            <td class="muted">${OJ_.esc(d.message || "")}</td>
+          </tr>`).join("")
+        : `<tr><td colspan="6" class="empty">等待评测…</td></tr>`;
+      const cm = document.getElementById("compileMsg");
+      cm.innerHTML = s.compile_message ? `<pre class="code">${OJ_.esc(s.compile_message)}</pre>` : "";
+    }
+
+    initEditor();
+    loadProblems();
+    loadContests();
+  </script>
+</body>
+</html>

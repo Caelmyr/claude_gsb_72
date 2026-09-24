@@ -1,0 +1,38 @@
+{
+  "id": "p1007",
+  "title": "素数判定",
+  "difficulty": 2,
+  "description": "给定一个整数 N，判断它是否为素数。若是素数输出 YES，否则输出 NO。",
+  "input_description": "一行一个整数 N（1 ≤ N ≤ 10^9）。",
+  "output_description": "一行 YES 或 NO。",
+  "samples": [
+    {
+      "input": "17",
+      "output": "YES"
+    },
+    {
+      "input": "24",
+      "output": "NO"
+    }
+  ],
+  "hint": "1 不是素数。可只枚举到 sqrt(N)。",
+  "tags": [
+    "数学",
+    "数论"
+  ],
+  "time_limit_ms": 1000,
+  "memory_limit_kb": 65536,
+  "languages": [
+    "python",
+    "cpp",
+    "c",
+    "java"
+  ],
+  "points": 100,
+  "comparison": {
+    "mode": "exact",
+    "ignore_whitespace": true
+  },
+  "created_at": "2026-09-24T01:04:42",
+  "updated_at": "2026-09-24T01:04:42"
+}

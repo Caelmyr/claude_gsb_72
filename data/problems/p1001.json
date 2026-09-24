@@ -1,0 +1,38 @@
+{
+  "id": "p1001",
+  "title": "A+B 问题",
+  "difficulty": 1,
+  "description": "输入两个整数 A 和 B，输出它们的和。",
+  "input_description": "一行两个整数 A 和 B（绝对值不超过 10^9）。",
+  "output_description": "一个整数，表示 A+B 的和。",
+  "samples": [
+    {
+      "input": "1 2",
+      "output": "3"
+    },
+    {
+      "input": "-5 8",
+      "output": "3"
+    }
+  ],
+  "hint": "注意整数范围。",
+  "tags": [
+    "入门",
+    "数学"
+  ],
+  "time_limit_ms": 1000,
+  "memory_limit_kb": 65536,
+  "languages": [
+    "python",
+    "cpp",
+    "c",
+    "java"
+  ],
+  "points": 100,
+  "comparison": {
+    "mode": "exact",
+    "ignore_whitespace": true
+  },
+  "created_at": "2026-09-24T01:04:42",
+  "updated_at": "2026-09-24T01:04:42"
+}

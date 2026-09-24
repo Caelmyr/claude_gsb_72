@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>讨论区 - 在线代码评测与竞赛系统</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <div id="nav"></div>
+
+  <div class="container" style="max-width:900px">
+    <div class="page-head">
+      <div>
+        <h1>💬 讨论区</h1>
+        <div class="sub">交流解题思路，提问与答疑</div>
+      </div>
+      <button class="btn btn-primary" onclick="openNew()">＋ 发帖</button>
+    </div>
+
+    <div class="card">
+      <div class="toolbar">
+        <select id="problemFilter" style="width:auto" onchange="load()">
+          <option value="">全部题目</option>
+        </select>
+        <button class="btn btn-outline btn-sm" onclick="load()">🔄 刷新</button>
+      </div>
+      <div id="threadList"></div>
+    </div>
+  </div>
+
+  <script src="/assets/app.js"></script>
+  <script>
+    OJ.boot("forum");
+    const pidParam = new URLSearchParams(location.search).get("problem_id") || "";
+
+    async function load() {
+      const pid = OJ.el("problemFilter").value;
+      const params = new URLSearchParams();
+      if (pid) params.set("problem_id", pid);
+      const box = OJ.el("threadList");
+      try {
+        const data = await OJ.api("/forum?" + params.toString());
+        if (!data.items.length) { box.innerHTML = `<div class="empty">暂无帖子</div>`; return; }
+        box.innerHTML = data.items.map(t => `
+          <div class="thread">
+            <div><a class="t-title" onclick="view('${OJ.esc(t.id)}')" style="cursor:pointer">${OJ.esc(t.title)}</a>
+              ${t.problem_id ? `<span class="tag" style="margin-left:6px">${OJ.esc(t.problem_id)}</span>` : ""}</div>
+            <div class="t-meta">${OJ.esc(t.author_name)} · ${OJ.fmtTime(t.created_at)} · ${(t.replies || []).length} 回复</div>
+          </div>`).join("");
+      } catch (e) { box.innerHTML = `<div class="empty">${OJ.esc(e.message)}</div>`; }
+    }
+
+    async function loadProblems() {
+      const sel = OJ.el("problemFilter");
+      try {
+        const data = await OJ.api("/problems");
+        data.items.forEach(p => { const o = document.createElement("option"); o.value = p.id; o.textContent = p.id + " · " + p.title; sel.appendChild(o); });
+        if (pidParam) { sel.value = pidParam; }
+      } catch (e) {}
+    }
+
+    function requireLogin() {
+      if (!OJ.currentUser()) { OJ.toast("请先登录", "error"); location.href = "/index.html?login=1"; return false; }
+      return true;
+    }
+
+    function openNew() {
+      if (!requireLogin()) return;
+      const body = `
+        <div class="form-group"><label>标题</label><input id="t_title"></div>
+        <div class="form-row">
+          <div class="form-group"><label>关联题目（可选）</label><select id="t_pid"><option value="">不关联</option>${OJ.el("problemFilter").innerHTML}</select></div>
+          <div class="form-group"><label>关联竞赛（可选）</label><input id="t_cid" placeholder="竞赛 ID"></div>
+        </div>
+        <div class="form-group"><label>内容</label><textarea id="t_content" rows="6"></textarea></div>`;
+      const mask = OJ.openModal("发帖", body);
+      mask.querySelector(".modal-actions").innerHTML = `
+        <button class="btn btn-outline" onclick="this.closest('.modal-mask').remove()">取消</button>
+        <button class="btn btn-primary" onclick="create()">发布</button>`;
+    }
+
+    async function create() {
+      const body = {
+        title: document.getElementById("t_title").value.trim(),
+        content: document.getElementById("t_content").value.trim(),
+        problem_id: document.getElementById("t_pid").value || null,
+        contest_id: document.getElementById("t_cid").value.trim() || null,
+      };
+      try {
+        await OJ.api("/forum", { method: "POST", body });
+        OJ.toast("发布成功", "success");
+        document.querySelector(".modal-mask").remove();
+        load();
+      } catch (e) { OJ.toast(e.message, "error"); }
+    }
+
+    async function view(id) {
+      try {
+        const t = await OJ.api("/forum/" + id);
+        const replies = (t.replies || []).map(r => `
+          <div class="reply"><div class="r-meta">${OJ.esc(r.author_name)} · ${OJ.fmtTime(r.created_at)}</div><div>${OJ.esc(r.content)}</div></div>`).join("");
+        const body = `
+          <h4 style="margin-bottom:6px">${OJ.esc(t.title)}</h4>
+          <div class="muted" style="font-size:12px;margin-bottom:12px">${OJ.esc(t.author_name)} · ${OJ.fmtTime(t.created_at)}${t.problem_id ? " · " + OJ.esc(t.problem_id) : ""}</div>
+          <div style="white-space:pre-wrap">${OJ.esc(t.content)}</div>
+          <hr style="border:none;border-top:1px solid var(--border);margin:16px 0">
+          <div class="card-title">回复（${(t.replies || []).length}）</div>
+          ${replies || '<div class="muted">暂无回复</div>'}
+          <div class="form-group mt-16"><label>发表回复</label><textarea id="r_content" rows="3"></textarea></div>
+          <div class="modal-actions" style="margin-top:0">
+            ${(OJ.currentUser() && (t.author === OJ.currentUser().id || OJ.isAdmin())) ? `<button class="btn btn-danger" onclick="delThread('${OJ.esc(t.id)}')">删除帖子</button>` : ""}
+            <span style="flex:1"></span>
+            <button class="btn btn-primary" onclick="reply('${OJ.esc(t.id)}')">回复</button>
+          </div>`;
+        const mask = OJ.openModal(t.title, body);
+        mask.querySelector(".modal").style.maxWidth = "760px";
+      } catch (e) { OJ.toast(e.message, "error"); }
+    }
+
+    async function reply(id) {
+      if (!requireLogin()) return;
+      const content = document.getElementById("r_content").value.trim();
+      if (!content) { OJ.toast("回复内容不能为空", "error"); return; }
+      try {
+        await OJ.api("/forum/" + id + "/reply", { method: "POST", body: { content } });
+        OJ.toast("回复成功", "success");
+        document.querySelector(".modal-mask").remove();
+        view(id);
+      } catch (e) { OJ.toast(e.message, "error"); }
+    }
+
+    async function delThread(id) {
+      if (!await OJ.confirmDialog("确定删除该帖子？")) return;
+      try { await OJ.api("/forum/" + id, { method: "DELETE" }); OJ.toast("已删除", "success"); document.querySelector(".modal-mask").remove(); load(); }
+      catch (e) { OJ.toast(e.message, "error"); }
+    }
+
+    loadProblems().then(load);
+  </script>
+</body>
+</html>

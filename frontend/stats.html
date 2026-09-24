@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>统计报表 - 在线代码评测与竞赛系统</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <div id="nav"></div>
+
+  <div class="container">
+    <div class="page-head">
+      <div>
+        <h1>📊 统计报表</h1>
+        <div class="sub">评测数据与系统运行概览</div>
+      </div>
+      <button class="btn btn-outline" onclick="load()">🔄 刷新</button>
+    </div>
+
+    <div class="stat-grid" id="statCards"></div>
+
+    <div class="grid-2">
+      <div class="card"><div class="card-title">评测结果分布</div><div class="chart-box"><canvas id="verdictChart"></canvas></div><div id="verdictFallback"></div></div>
+      <div class="card"><div class="card-title">提交语言分布</div><div class="chart-box"><canvas id="langChart"></canvas></div><div id="langFallback"></div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">近 24 小时提交趋势</div>
+      <div class="chart-box"><canvas id="timelineChart"></canvas></div><div id="timelineFallback"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">题目提交与通过情况</div>
+      <div class="chart-box"><canvas id="problemChart"></canvas></div>
+      <div class="table-wrap mt-8 hidden" id="problemTable"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">活跃用户 TOP 10</div>
+      <div class="table-wrap"><table><thead><tr><th>#</th><th>用户</th><th>提交数</th></tr></thead><tbody id="topUsers"></tbody></table></div>
+    </div>
+
+    <div class="card hidden" id="cheatCard">
+      <div class="card-title">🛡️ 防作弊报告 <span class="hint">代码相似度检测（仅管理员可见）</span></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>用户 A</th><th>用户 B</th><th>题目</th><th class="text-center">相似度</th><th>提交时间</th></tr></thead>
+        <tbody id="cheatBody"></tbody>
+      </table></div>
+    </div>
+  </div>
+
+  <script src="/assets/app.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script>
+    OJ.boot("stats");
+    let charts = {};
+
+    const COLORS = ["#3d5afe", "#16a34a", "#dc2626", "#ea580c", "#7c3aed", "#ca8a04", "#0891b2", "#64748b", "#db2777", "#059669"];
+
+    function destroyCharts() { Object.values(charts).forEach(c => { try { c.destroy(); } catch (e) {} }); charts = {}; }
+
+    async function load() {
+      try {
+        const d = await OJ.api("/stats/overview");
+        renderCards(d);
+        renderCharts(d);
+      } catch (e) {
+        OJ.el("statCards").innerHTML = `<div class="empty">${OJ.esc(e.message)}</div>`;
+      }
+    }
+
+    function renderCards(d) {
+      const c = d.counts;
+      OJ.el("statCards").innerHTML = `
+        <div class="stat-card"><div class="val">${c.users}</div><div class="lbl">注册用户</div></div>
+        <div class="stat-card"><div class="val">${c.problems}</div><div class="lbl">题目总数</div></div>
+        <div class="stat-card"><div class="val">${c.contests}</div><div class="lbl">竞赛总数</div></div>
+        <div class="stat-card"><div class="val">${c.submissions}</div><div class="lbl">提交总数</div></div>
+        <div class="stat-card"><div class="val" style="color:var(--green)">${c.accepted}</div><div class="lbl">通过提交</div></div>
+        <div class="stat-card"><div class="val" style="color:var(--primary)">${(c.ac_rate * 100).toFixed(1)}%</div><div class="lbl">通过率</div></div>`;
+    }
+
+    function renderCharts(d) {
+      destroyCharts();
+      const hasChart = typeof Chart !== "undefined";
+      const verdicts = d.verdicts || {}, langs = d.languages || {};
+      const vLabels = Object.keys(verdicts), vData = Object.values(verdicts);
+      const lLabels = Object.keys(langs), lData = Object.values(langs);
+
+      if (hasChart) {
+        const pieOpts = (labels, data, colors) => ({
+          type: "doughnut",
+          data: { labels, datasets: [{ data, backgroundColor: colors || labels.map((_, i) => COLORS[i % COLORS.length]) }] },
+          options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "right" } } },
+        });
+        if (vLabels.length) charts.verdict = new Chart(document.getElementById("verdictChart"), pieOpts(vLabels, vData, vLabels.map(l => verdictColor(l))));
+        if (lLabels.length) charts.lang = new Chart(document.getElementById("langChart"), pieOpts(lLabels, lData));
+
+        if (d.timeline && d.timeline.length) {
+          charts.timeline = new Chart(document.getElementById("timelineChart"), {
+            type: "line",
+            data: { labels: d.timeline.map(x => x.hour.slice(11)), datasets: [{ label: "提交数", data: d.timeline.map(x => x.count), borderColor: "#3d5afe", backgroundColor: "rgba(61,90,254,.12)", fill: true, tension: .35 }] },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } },
+          });
+        }
+        if (d.problem_stats && d.problem_stats.length) {
+          charts.problem = new Chart(document.getElementById("problemChart"), {
+            type: "bar",
+            data: { labels: d.problem_stats.map(x => x.id), datasets: [
+              { label: "提交", data: d.problem_stats.map(x => x.submissions), backgroundColor: "rgba(61,90,254,.7)" },
+              { label: "通过", data: d.problem_stats.map(x => x.accepted), backgroundColor: "rgba(22,163,74,.7)" },
+            ] },
+            options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } },
+          });
+        }
+      } else {
+        // 无 Chart.js 时的降级表格
+        document.getElementById("verdictFallback").innerHTML = tableFrom("评测结果分布", verdicts);
+        document.getElementById("langFallback").innerHTML = tableFrom("语言分布", langs);
+      }
+
+      // 活跃用户
+      const tu = OJ.el("topUsers");
+      tu.innerHTML = (d.top_users || []).map((u, i) => `<tr><td>${i + 1}</td><td>${OJ.esc(u.username)}</td><td class="mono">${u.submissions}</td></tr>`).join("") || `<tr><td colspan="3" class="empty">暂无数据</td></tr>`;
+    }
+
+    function tableFrom(title, obj) {
+      const rows = Object.entries(obj).map(([k, v]) => `<tr><td>${OJ.esc(k)}</td><td class="mono">${v}</td></tr>`).join("");
+      return `<div class="table-wrap mt-8"><table><thead><tr><th>${OJ.esc(title)}</th><th>数量</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    }
+
+    function verdictColor(v) {
+      const map = { AC: "#16a34a", WA: "#dc2626", TLE: "#ea580c", MLE: "#7c3aed", RE: "#ca8a04", CE: "#64748b", OLE: "#7c3aed", SE: "#64748b", PENDING: "#0891b2", JUDGING: "#0891b2" };
+      return map[v] || "#64748b";
+    }
+
+    async function loadCheatReport() {
+      if (!OJ.isAdmin()) return;
+      try {
+        const r = await OJ.api("/stats/cheat-report");
+        const reports = r.reports || [];
+        OJ.el("cheatCard").classList.toggle("hidden", !reports.length);
+        OJ.el("cheatBody").innerHTML = reports.map(x => `
+          <tr>
+            <td>${OJ.esc(x.a ? x.a.username : "-")}</td>
+            <td>${OJ.esc(x.b ? x.b.username : "-")}</td>
+            <td class="mono">${OJ.esc(x.a ? x.a.problem_id : "")}</td>
+            <td class="text-center"><span class="badge ${x.similarity >= 0.95 ? "RE" : "orange"}">${(x.similarity * 100).toFixed(1)}%</span></td>
+            <td class="mono muted">${OJ.fmtTime(x.a ? x.a.created_at : "")}</td>
+          </tr>`).join("");
+      } catch (e) { /* 忽略 */ }
+    }
+
+    load();
+    loadCheatReport();
+    setInterval(load, 15000);
+    setInterval(loadCheatReport, 15000);
+  </script>
+</body>
+</html>

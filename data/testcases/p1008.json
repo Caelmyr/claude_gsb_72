@@ -1,0 +1,29 @@
+{
+  "problem_id": "p1008",
+  "cases": [
+    {
+      "id": 1,
+      "input": "hello",
+      "output": "olleh",
+      "points": 25
+    },
+    {
+      "id": 2,
+      "input": "abcde",
+      "output": "edcba",
+      "points": 25
+    },
+    {
+      "id": 3,
+      "input": "a",
+      "output": "a",
+      "points": 25
+    },
+    {
+      "id": 4,
+      "input": "level",
+      "output": "level",
+      "points": 25
+    }
+  ]
+}

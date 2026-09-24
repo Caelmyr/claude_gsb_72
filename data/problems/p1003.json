@@ -1,0 +1,34 @@
+{
+  "id": "p1003",
+  "title": "浮点数求和",
+  "difficulty": 2,
+  "description": "给定两个浮点数，输出它们的和，保留 2 位小数。允许浮点误差。",
+  "input_description": "一行两个浮点数。",
+  "output_description": "一个浮点数（保留 2 位小数，误差 ≤ 1e-6 判定通过）。",
+  "samples": [
+    {
+      "input": "1.1 2.2",
+      "output": "3.30"
+    }
+  ],
+  "hint": "本题使用浮点误差比较。",
+  "tags": [
+    "数学",
+    "浮点"
+  ],
+  "time_limit_ms": 1000,
+  "memory_limit_kb": 65536,
+  "languages": [
+    "python",
+    "cpp",
+    "c",
+    "java"
+  ],
+  "points": 100,
+  "comparison": {
+    "mode": "float",
+    "float_tolerance": 1e-06
+  },
+  "created_at": "2026-09-24T01:04:42",
+  "updated_at": "2026-09-24T01:04:42"
+}
