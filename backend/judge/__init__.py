@@ -52,8 +52,11 @@ class JudgeEngine:
         self._recent = deque(maxlen=5000)      # 近期完整提交（含代码，供防作弊）
         self._index = {}                        # sub_id -> (contest_id, user_id)
         self._lock = threading.Lock()
-        self._pending_count = 0
-        self._finished_count = 0
+        self._queue = {}                        # sub_id -> 队列条目（排队中/运行中，有序）
+        self._queued_count = 0                  # 排队中（已入队未开判）
+        self._running_count = 0                 # 运行中（正在评测）
+        self._finished_count = 0                # 已完成（含重启前已判完的）
+        self._maxc = 4                          # 并发上限缓存（避免查询时读盘）
         self._started = False
 
     # ---- 生命周期 ----
@@ -61,6 +64,7 @@ class JudgeEngine:
         if self._started:
             return
         maxc = self._max_concurrent()
+        self._maxc = maxc
         self._semaphore = threading.Semaphore(maxc)
         self._executor = ThreadPoolExecutor(max_workers=max(8, maxc * 2),
                                             thread_name_prefix="judge")
@@ -80,14 +84,16 @@ class JudgeEngine:
 
     def refresh_concurrency(self):
         """根据设置调整并发上限（运行时生效）。"""
+        self._maxc = self._max_concurrent()
         if self._semaphore is not None:
-            self._semaphore._value = self._max_concurrent()
+            self._semaphore._value = self._maxc
 
     def _rebuild_index(self):
-        """扫描全部分片，重建内存索引与近期列表。"""
+        """扫描全部分片，重建内存索引、近期列表与已完成计数。"""
         with self._lock:
             self._index.clear()
             all_subs = []
+            finished = 0
             for cid in list_dirs(config.SUBMISSIONS_DIR):
                 cdir = os.path.join(config.SUBMISSIONS_DIR, cid)
                 for uid in list_files(cdir):
@@ -97,6 +103,10 @@ class JudgeEngine:
                     for s in shard.get("submissions", []):
                         self._index[s["id"]] = (cid, uid)
                         all_subs.append(s)
+                        if s.get("status") not in ("PENDING", "JUDGING"):
+                            finished += 1
+            # 重启后队列实际为空，但历史已判完的提交要计入"已完成"
+            self._finished_count = finished
             all_subs.sort(key=lambda s: s.get("created_at", ""))
             for s in all_subs[-5000:]:
                 self._recent.append(s)
@@ -130,10 +140,33 @@ class JudgeEngine:
         with self._lock:
             self._index[sub["id"]] = (contest_id, user["id"])
             self._recent.append(sub)
-            self._pending_count += 1
-        # 提交到线程池
-        self._executor.submit(self._judge_job, sub["id"], contest_id, user["id"])
+        # 登记队列并提交到线程池
+        self._enqueue(sub)
         return sub
+
+    def _enqueue(self, sub):
+        """把提交登记到内存队列并调度评测（submit/rejudge 共用）。
+
+        队列条目只保留展示所需的轻量字段（不含代码），
+        全部操作在内存完成，不触碰磁盘，不影响评测速度。
+        """
+        with self._lock:
+            if sub["id"] in self._queue:
+                return  # 已在队列中，避免重复计数与重复评测
+            self._queued_count += 1
+            self._queue[sub["id"]] = {
+                "id": sub["id"],
+                "contest_id": sub["contest_id"],
+                "problem_id": sub["problem_id"],
+                "username": sub.get("username", ""),
+                "nickname": sub.get("nickname", ""),
+                "language": sub.get("language", ""),
+                "status": "PENDING",
+                "created_at": sub.get("created_at"),
+                "_enqueued_ts": now_ts(),
+                "_started_ts": None,
+            }
+        self._executor.submit(self._judge_job, sub["id"], sub["contest_id"], sub["user_id"])
 
     def _append_shard(self, sub):
         def _upd(shard):
@@ -169,13 +202,33 @@ class JudgeEngine:
     def _judge_job(self, sub_id, contest_id, user_id):
         """线程池任务：执行完整评测。"""
         self._semaphore.acquire()
+        self._mark_running(sub_id)
         try:
             self._run_judge(sub_id, contest_id, user_id)
+        except Exception as e:  # 兜底：异常不能让用户提交永远卡在 JUDGING
+            try:
+                self._finalize(sub_id, "SE", 0, [], f"评测内部错误: {e}", 0, 0)
+            except Exception:
+                pass
         finally:
             self._semaphore.release()
-            with self._lock:
-                self._pending_count = max(0, self._pending_count - 1)
-                self._finished_count += 1
+            self._mark_done(sub_id)
+
+    def _mark_running(self, sub_id):
+        """队列状态：排队中 → 运行中。"""
+        with self._lock:
+            self._queued_count = max(0, self._queued_count - 1)
+            self._running_count += 1
+            item = self._queue.get(sub_id)
+            if item is not None:
+                item["status"] = "JUDGING"
+                item["_started_ts"] = now_ts()
+
+    def _mark_done(self, sub_id):
+        """队列状态：运行结束，移出队列（已完成计数在 _finalize 中累加）。"""
+        with self._lock:
+            self._running_count = max(0, self._running_count - 1)
+            self._queue.pop(sub_id, None)
 
     def _run_judge(self, sub_id, contest_id, user_id):
         sub = self._update_shard(sub_id, lambda s: s.update(status="JUDGING"))
@@ -365,9 +418,11 @@ class JudgeEngine:
                 time_ms=time_ms, memory_kb=memory_kb, judged_at=datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
             )
         updated = self._update_shard(sub_id, _upd)
-        # 同步内存 recent 列表中的状态
+        with self._lock:
+            self._finished_count += 1
+        # 同步内存 recent 列表中的状态（默认开启，可在设置中关闭）
         settings = read_json(config.SETTINGS_FILE, config.DEFAULT_SETTINGS)
-        if (settings or {}).get("judge", {}).get("sync_recent_cache", True):
+        if not (settings or {}).get("judge", {}).get("sync_recent_cache", True):
             return updated
         with self._lock:
             for s in self._recent:
@@ -375,6 +430,7 @@ class JudgeEngine:
                     s.update(status=status, score=score, time_ms=time_ms,
                              memory_kb=memory_kb, judged_at=now_iso(), details=details)
                     break
+        return updated
 
     def _anti_cheat(self, sub_id):
         contest_id, user_id = self._index.get(sub_id, (None, None))
@@ -462,19 +518,58 @@ class JudgeEngine:
         sub = self._get_by_id(sub_id)
         if sub is None:
             return False
+        was_finished = sub.get("status") not in ("PENDING", "JUDGING")
         self._update_shard(sub_id, lambda s: s.update(status="PENDING", judged_at=None,
                                                        details=[], score=0))
-        self._executor.submit(self._judge_job, sub_id, sub["contest_id"], sub["user_id"])
+        if was_finished:
+            # 已判完的提交重新排队，先从"已完成"中扣减，保持计数与实际一致
+            with self._lock:
+                self._finished_count = max(0, self._finished_count - 1)
+        self._enqueue(sub)
         return True
 
     # ---- 统计 ----
     def stats(self):
         with self._lock:
             return {
-                "pending": self._pending_count,
+                "pending": self._queued_count,
+                "running": self._running_count,
                 "finished": self._finished_count,
                 "recent_count": len(self._recent),
                 "sandbox": self.sandbox.name,
+            }
+
+    def queue_status(self, limit=50):
+        """实时队列快照：排队中 / 运行中 / 已完成 + 队列明细。
+
+        纯内存读取（含并发上限缓存），不访问磁盘、不触碰评测锁路径，
+        管理员高频轮询也不会拖慢评测。
+        """
+        now = now_ts()
+        with self._lock:
+            items = []
+            for it in list(self._queue.values())[:limit]:
+                start = it["_started_ts"] if it["_started_ts"] is not None else it["_enqueued_ts"]
+                items.append({
+                    "id": it["id"],
+                    "contest_id": it["contest_id"],
+                    "problem_id": it["problem_id"],
+                    "username": it["username"],
+                    "nickname": it["nickname"],
+                    "language": it["language"],
+                    "status": it["status"],
+                    "created_at": it["created_at"],
+                    "elapsed_ms": max(0, int((now - start) * 1000)),
+                })
+            return {
+                "pending": self._queued_count,
+                "running": self._running_count,
+                "finished": self._finished_count,
+                "max_concurrent": self._maxc,
+                "in_queue": len(self._queue),
+                "idle": not self._queue,
+                "items": items,
+                "updated_at": now_iso(),
             }
 
 

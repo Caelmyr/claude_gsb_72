@@ -18,6 +18,15 @@
       <button class="btn btn-outline" onclick="load()">🔄 刷新</button>
     </div>
 
+    <div class="card hidden" id="queueCard">
+      <div class="card-title">
+        <span>⚙️ 评测队列<span class="live-dot" id="queueLive"></span></span>
+        <span class="hint" id="queueUpdated"></span>
+      </div>
+      <div class="stat-grid" id="queueStats" style="margin-bottom:14px"></div>
+      <div id="queueBody"></div>
+    </div>
+
     <div class="stat-grid" id="statCards"></div>
 
     <div class="grid-2">
@@ -152,10 +161,66 @@
       } catch (e) { /* 忽略 */ }
     }
 
+    /* ---------- 评测队列（管理员，2 秒自动刷新） ---------- */
+    const queueProblemNames = {};
+
+    async function loadQueue() {
+      if (!OJ.isAdmin()) return;
+      try {
+        const q = await OJ.api("/judge/queue");
+        OJ.el("queueCard").classList.remove("hidden");
+        await resolveQueueProblems(q.items || []);
+        renderQueue(q);
+      } catch (e) { /* 网络波动时下轮自动重试 */ }
+    }
+
+    async function resolveQueueProblems(items) {
+      const ids = [...new Set(items.map(s => s.problem_id))].filter(id => !(id in queueProblemNames));
+      await Promise.all(ids.map(async id => {
+        try { const p = await OJ.api("/problems/" + id); queueProblemNames[id] = p.title; }
+        catch (e) { queueProblemNames[id] = id; }
+      }));
+    }
+
+    function renderQueue(q) {
+      OJ.el("queueStats").innerHTML = `
+        <div class="stat-card"><div class="val" style="color:var(--cyan)">${q.pending}</div><div class="lbl">排队中</div></div>
+        <div class="stat-card"><div class="val" style="color:var(--primary)">${q.running}</div><div class="lbl">运行中</div></div>
+        <div class="stat-card"><div class="val" style="color:var(--green)">${q.finished}</div><div class="lbl">已完成</div></div>
+        <div class="stat-card"><div class="val">${q.max_concurrent}</div><div class="lbl">评测并发上限</div></div>`;
+      OJ.el("queueUpdated").textContent = "每 2 秒自动刷新 · 更新于 " + OJ.fmtTime(q.updated_at);
+
+      const items = q.items || [];
+      if (!items.length) {
+        OJ.el("queueBody").innerHTML = `<div class="queue-idle">🎉 队列空闲，没有等待评测的提交</div>`;
+        return;
+      }
+      const rows = items.map(s => `
+        <tr>
+          <td class="mono muted">${OJ.esc(s.id)}</td>
+          <td>${OJ.esc(s.nickname || s.username)}</td>
+          <td>${OJ.esc(queueProblemNames[s.problem_id] || s.problem_id)}</td>
+          <td class="mono">${OJ.esc(s.language)}</td>
+          <td class="text-center">${OJ.verdictBadge(s.status)}</td>
+          <td class="text-center mono">${s.status === "JUDGING" ? "已判 " : "已等 "}${OJ.fmtDuration(s.elapsed_ms)}</td>
+        </tr>`).join("");
+      const more = q.in_queue > items.length
+        ? `<div class="hint mt-8">仅显示前 ${items.length} 条，队列共 ${q.in_queue} 条</div>` : "";
+      OJ.el("queueBody").innerHTML = `
+        <div class="table-wrap"><table>
+          <thead><tr><th>提交 ID</th><th>用户</th><th>题目</th><th>语言</th><th class="text-center">状态</th><th class="text-center">等待 / 耗时</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table></div>${more}`;
+    }
+
     load();
     loadCheatReport();
     setInterval(load, 15000);
     setInterval(loadCheatReport, 15000);
+    if (OJ.isAdmin()) {
+      loadQueue();
+      setInterval(loadQueue, 2000);
+    }
   </script>
 </body>
 </html>
