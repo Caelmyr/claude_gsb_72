@@ -17,12 +17,113 @@
       </div>
     </div>
 
+    <div id="queueCard" class="hidden">
+      <div class="card queue-card">
+        <div class="card-title">
+          <span>🧑‍⚖️ 评测队列状态</span>
+          <span class="hint">
+            <span class="live-dot"></span>实时刷新 · <span id="queueUpdated">--:--:--</span>
+          </span>
+        </div>
+        <div class="stat-grid queue-stats">
+          <div class="stat-card queue-pending"><div class="val" id="qPending">0</div><div class="lbl">排队中</div></div>
+          <div class="stat-card queue-running"><div class="val" id="qRunning">0</div><div class="lbl">运行中</div></div>
+          <div class="stat-card queue-finished"><div class="val" id="qFinished">0</div><div class="lbl">已完成</div></div>
+          <div class="stat-card"><div class="val" id="qMax">0</div><div class="lbl">最大并发</div></div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>提交</th><th>用户</th><th>题目</th><th>语言</th>
+                <th class="text-center">状态</th><th class="text-center">进度</th>
+                <th class="text-right">耗时</th>
+              </tr>
+            </thead>
+            <tbody id="queueBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
     <div id="body"></div>
   </div>
 
   <script src="/assets/app.js"></script>
   <script>
     OJ.boot("settings");
+
+    /* ---------- 实时评测队列（仅管理员） ---------- */
+    let queueTimer = null;
+    const queueCard = document.getElementById("queueCard");
+
+    function shortId(id) { return id ? id.slice(-8) : ""; }
+
+    function fmtElapsed(ms) {
+      if (ms < 1000) return ms + " ms";
+      const s = ms / 1000;
+      if (s < 60) return s.toFixed(1) + " 秒";
+      return Math.floor(s / 60) + " 分 " + Math.floor(s % 60) + " 秒";
+    }
+
+    async function refreshQueue() {
+      // 页面切到后台时不请求，回来后立即刷新一次
+      if (document.hidden) return;
+      let q;
+      try { q = await OJ.api("/submissions/queue"); }
+      catch (e) {
+        OJ.el("queueUpdated").textContent = "刷新失败：" + e.message;
+        return;
+      }
+      OJ.el("qPending").textContent = q.pending;
+      OJ.el("qRunning").textContent = q.running;
+      OJ.el("qFinished").textContent = q.finished;
+      OJ.el("qMax").textContent = q.max_concurrent;
+      OJ.el("queueUpdated").textContent = "最近更新 " + new Date().toLocaleTimeString();
+
+      const tbody = OJ.el("queueBody");
+      if (!q.items.length) {
+        // 没有任何提交排队：显示空闲状态而不是空白
+        tbody.innerHTML = `<tr><td colspan="7">
+          <div class="queue-idle">😴 评测队列空闲，当前没有排队或运行中的提交</div>
+        </td></tr>`;
+        return;
+      }
+      tbody.innerHTML = q.items.map(it => {
+        const isRun = it.status === "JUDGING";
+        const progress = isRun
+          ? (it.total_cases > 0
+              ? `${it.done_cases}/${it.total_cases} 测试点`
+              : OJ.esc(it.stage || "运行中"))
+          : '<span class="muted">等待评测</span>';
+        const stage = isRun
+          ? `<div class="queue-stage">${OJ.esc(it.stage || "")}</div>` : "";
+        const badge = isRun
+          ? '<span class="badge JUDGING pulse">运行中</span>'
+          : '<span class="badge PENDING">排队中</span>';
+        return `
+          <tr>
+            <td class="mono muted" title="${OJ.esc(it.id)}">${OJ.esc(shortId(it.id))}</td>
+            <td>${OJ.esc(it.nickname || it.username)}</td>
+            <td>${OJ.esc(it.problem_title || it.problem_id)}</td>
+            <td class="mono">${OJ.esc(it.language)}</td>
+            <td class="text-center">${badge}${stage}</td>
+            <td class="text-center mono">${progress}</td>
+            <td class="text-right mono">${fmtElapsed(it.elapsed_ms)}</td>
+          </tr>`;
+      }).join("");
+    }
+
+    function startQueuePolling() {
+      if (!OJ.isAdmin()) { queueCard.classList.add("hidden"); return; }
+      queueCard.classList.remove("hidden");
+      refreshQueue();
+      if (queueTimer) clearInterval(queueTimer);
+      queueTimer = setInterval(refreshQueue, 2000);
+      document.addEventListener("visibilitychange", () => {
+        if (!document.hidden) refreshQueue();
+      });
+    }
 
     async function load() {
       const box = OJ.el("body");
@@ -91,6 +192,7 @@
       catch (e) { OJ.toast(e.message, "error"); }
     }
 
+    startQueuePolling();
     load();
   </script>
 </body>

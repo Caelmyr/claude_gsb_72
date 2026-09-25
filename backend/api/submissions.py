@@ -71,6 +71,18 @@ def list_submissions():
     return ok(result)
 
 
+@submissions_bp.get("/submissions/queue")
+@require_admin
+def judge_queue():
+    """评测队列实时状态（仅管理员）。
+
+    纯内存快照：排队中 / 运行中 / 已完成数量及每条活动提交的大致进度，
+    供管理页高频轮询；不触碰提交分片磁盘文件，因此不拖慢评测本身。
+    """
+    engine.refresh_problem_titles()
+    return ok(engine.queue_snapshot())
+
+
 @submissions_bp.get("/submissions/<sub_id>")
 @require_auth
 def get_submission(sub_id):

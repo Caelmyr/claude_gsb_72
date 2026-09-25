@@ -272,6 +272,28 @@ code.inline { font-family: var(--mono); background: var(--surface-2); padding: 1
 
 /* 工具 */
 .hidden { display: none !important; }
+
+/* ---------- 实时评测队列（管理页） ---------- */
+.queue-card .queue-stats { margin-bottom: 14px; }
+.queue-pending .val { color: var(--cyan); }
+.queue-running .val { color: var(--primary); }
+.queue-finished .val { color: var(--green); }
+.queue-idle {
+  text-align: center; color: var(--text-muted); padding: 28px 16px;
+  font-size: 14px;
+}
+.queue-stage { font-size: 11px; color: var(--text-muted); margin-top: 3px; font-weight: 400; }
+.live-dot {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--green); margin-right: 4px;
+  box-shadow: 0 0 0 0 rgba(22, 163, 74, .5);
+  animation: livepulse 1.6s ease-out infinite;
+}
+@keyframes livepulse {
+  0% { box-shadow: 0 0 0 0 rgba(22, 163, 74, .45); }
+  70% { box-shadow: 0 0 0 7px rgba(22, 163, 74, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0); }
+}
 .mt-8 { margin-top: 8px; } .mt-16 { margin-top: 16px; } .mb-16 { margin-bottom: 16px; }
 .flex { display: flex; } .flex-between { display: flex; justify-content: space-between; align-items: center; }
 .gap-8 { gap: 8px; } .gap-12 { gap: 12px; } .wrap { flex-wrap: wrap; }
